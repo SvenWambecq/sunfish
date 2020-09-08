@@ -8,6 +8,7 @@ from collections import namedtuple
 import chess
 import chess.svg
 import random
+import os
 
 ###############################################################################
 # Piece-Square tables. Tune these to change sunfish's behaviour

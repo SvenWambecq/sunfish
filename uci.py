@@ -11,7 +11,7 @@ import logging
 import argparse
 
 import tools
-import sunfish
+import amwafish
 
 from tools import WHITE, BLACK, Unbuffered
 
@@ -26,13 +26,14 @@ def main():
         pst_module = importlib.import_module(args.tables)
         sunfish.pst = pst_module.pst
 
-    logging.basicConfig(filename='sunfish.log', level=logging.DEBUG)
+    logging.basicConfig(filename='amwafish.log', level=logging.DEBUG)
+
     out = Unbuffered(sys.stdout)
     def output(line):
         print(line, file=out)
         logging.debug(line)
     pos = tools.parseFEN(tools.FEN_INITIAL)
-    searcher = sunfish.Searcher()
+    searcher = amwafish.Searcher()
     color = WHITE
     our_time, opp_time = 1000, 1000 # time in centi-seconds
     show_thinking = True
@@ -49,7 +50,7 @@ def main():
             break
 
         elif smove == 'uci':
-            output('id name Sunfish')
+            output('id name amwafish')
             output('id author Thomas Ahle & Contributors')
             output('uciok')
 
@@ -119,7 +120,7 @@ def main():
             entry = searcher.tp_score.get((pos, sdepth, True))
             m, s = searcher.tp_move.get(pos), entry.lower
             # We only resign once we are mated.. That's never?
-            if s == -sunfish.MATE_UPPER:
+            if s == -amwafish.MATE_UPPER:
                 output('resign')
             else:
                 moves = moves.split(' ')

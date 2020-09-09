@@ -1,6 +1,7 @@
 import itertools
 import re
 import time
+import sys
 
 import sunfish
 
@@ -34,10 +35,13 @@ def gen_legal_moves(pos):
         Also the position after moving is included. '''
     for move in pos.gen_moves():
         pos1 = pos.move(move)
-        # If we just checked for opponent moves capturing the king, we would miss
-        # captures in case of illegal castling.
-        if not any(pos1.value(m) >= sunfish.MATE_LOWER for m in pos1.gen_moves()):
+        if not can_kill_king(pos1):
             yield move, pos1
+
+def can_kill_king(pos):
+    # If we just checked for opponent moves capturing the king, we would miss
+    # captures in case of illegal castling.
+    return any(pos.value(m) >= sunfish.MATE_LOWER for m in pos.gen_moves())
 
 def mrender(pos, m):
     # Sunfish always assumes promotion to queen
@@ -202,7 +206,7 @@ def parseEPD(epd, opt_dict=False):
 # Pretty print
 ################################################################################
 
-def pv(searcher, pos, include_scores=True):
+def pv(searcher, pos, include_scores=True, include_loop=False):
     res = []
     seen_pos = set()
     color = get_color(pos)
@@ -211,12 +215,14 @@ def pv(searcher, pos, include_scores=True):
         res.append(str(pos.score))
     while True:
         move = searcher.tp_move.get(pos)
-        if move is None:
+        # The tp may have illegal moves, given lower depths don't detect king killing
+        if move is None or can_kill_king(pos.move(move)):
             break
         res.append(mrender(pos, move))
         pos, color = pos.move(move), 1-color
         if pos in seen_pos:
-            res.append('loop')
+            if include_loop:
+                res.append('loop')
             break
         seen_pos.add(pos)
         if include_scores:
@@ -251,4 +257,20 @@ def flatten_tree(tree, depth):
     for subtree in tree:
         for pos in flatten_tree(subtree, depth-1):
             yield pos
+
+################################################################################
+# Non chess related tools
+################################################################################
+
+# Disable buffering
+class Unbuffered(object):
+    def __init__(self, stream):
+        self.stream = stream
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+        sys.stderr.write(data)
+        sys.stderr.flush()
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
 

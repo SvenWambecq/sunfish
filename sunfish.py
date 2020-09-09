@@ -145,7 +145,8 @@ class Position(namedtuple('Position', 'board score wc bc ep kp')):
                     # Pawn move, double move and capture
                     if p == 'P' and d in (N, N+N) and q != '.': break
                     if p == 'P' and d == N+N and (i < A1+N or self.board[i+N] != '.'): break
-                    if p == 'P' and d in (N+W, N+E) and q == '.' and j not in (self.ep, self.kp): break
+                    if p == 'P' and d in (N+W, N+E) and q == '.' \
+                            and j not in (self.ep, self.kp, self.kp-1, self.kp+1): break
                     # Move it
                     yield (i, j)
                     # Stop crawlers from sliding, and sliding after captures
@@ -282,19 +283,26 @@ class Searcher:
         # Generator of moves to search in order.
         # This allows us to define the moves, but only calculate them if needed.
         def moves():
-            # First try not moving at all. We only do this if there is at least one major piece left on the board, since otherwise zugzwangs are too dangerous.
+            # First try not moving at all. We only do this if there is at least one major
+            # piece left on the board, since otherwise zugzwangs are too dangerous.
             if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
                 yield None, -self.bound(pos.nullmove(), 1-gamma, depth-3, root=False)
-            # For QSearch we have a different kind of null-move, namely we can just stop and not capture anythign else.
+            # For QSearch we have a different kind of null-move, namely we can just stop
+            # and not capture anythign else.
             if depth == 0:
                 yield None, pos.score
-            # Then killer move. We search it twice, but the tp will fix things for us. Note, we don't have to check for legality, since we've already done it before. Also note that in QS the killer must be a capture, otherwise we will be non deterministic.
+            # Then killer move. We search it twice, but the tp will fix things for us.
+            # Note, we don't have to check for legality, since we've already done it
+            # before. Also note that in QS the killer must be a capture, otherwise we
+            # will be non deterministic.
             killer = self.tp_move.get(pos)
             if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
                 yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, root=False)
             # Then all the other moves
             for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
-                # If depth == 0 we only try moves with high intrinsic score (captures and promotions). Otherwise we do all moves.
+            #for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
+                # If depth == 0 we only try moves with high intrinsic score (captures and
+                # promotions). Otherwise we do all moves.
                 if depth > 0 or pos.value(move) >= QS_LIMIT:
                     yield move, -self.bound(pos.move(move), 1-gamma, depth-1, root=False)
 
@@ -335,9 +343,6 @@ class Searcher:
 
         return best
 
-    # secs over maxn is a breaking change. Can we do this?
-    # I guess I could send a pull request to deep pink
-    # Why include secs at all?
     def search(self, pos, history=()):
         """ Iterative deepening MTD-bi search """
         self.nodes = 0
@@ -351,7 +356,8 @@ class Searcher:
         for depth in range(1, 1000):
             # The inner loop is a binary search on the score of the position.
             # Inv: lower <= score <= upper
-            # 'while lower != upper' would work, but play tests show a margin of 20 plays better.
+            # 'while lower != upper' would work, but play tests show a margin of 20 plays
+            # better.
             lower, upper = -MATE_UPPER, MATE_UPPER
             while lower < upper - EVAL_ROUGHNESS:
                 gamma = (lower+upper+1)//2

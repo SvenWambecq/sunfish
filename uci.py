@@ -11,28 +11,25 @@ import logging
 import argparse
 
 import tools
+import chess
 import amwafish
 
 from tools import WHITE, BLACK, Unbuffered
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('module', help='sunfish.py file (without .py)', type=str, default='sunfish', nargs='?')
+    parser.add_argument('module', help='sunfish.py file (without .py)', type=str, default='amwafish', nargs='?')
     parser.add_argument('--tables', metavar='pst', help='alternative pst table', type=str, default=None)
     args = parser.parse_args()
 
-    sunfish = importlib.import_module(args.module)
-    if args.tables is not None:
-        pst_module = importlib.import_module(args.tables)
-        sunfish.pst = pst_module.pst
-
+    amwafish = importlib.import_module(args.module)
     logging.basicConfig(filename='amwafish.log', level=logging.DEBUG)
 
     out = Unbuffered(sys.stdout)
     def output(line):
         print(line, file=out)
         logging.debug(line)
-    pos = tools.parseFEN(tools.FEN_INITIAL)
+    pos = chess.Board(tools.FEN_INITIAL)
     searcher = amwafish.Searcher()
     color = WHITE
     our_time, opp_time = 1000, 1000 # time in centi-seconds
@@ -67,13 +64,12 @@ def main():
 
         elif smove.startswith('position startpos'):
             params = smove.split(' ')
-            pos = tools.parseFEN(tools.FEN_INITIAL)
+            pos = amwafish.Position(chess.Board())
             color = WHITE
 
             if len(params) > 2 and params[2] == 'moves':
                 for move in params[3:]:
-                    pos = pos.move(tools.mparse(color, move))
-                    color = 1 - color
+                    pos = pos.move(chess.Move.from_uci(move))
 
         elif smove.startswith('go'):
             #  default options
@@ -96,38 +92,30 @@ def main():
             start = time.time()
             ponder = None
             for sdepth, _move, _score in searcher.search(pos):
-                moves = tools.pv(searcher, pos, include_scores=False)
+                # moves = tools.pv(searcher, pos, include_scores=False)
 
-                if show_thinking:
-                    entry = searcher.tp_score.get((pos, sdepth, True))
-                    score = int(round((entry.lower + entry.upper)/2))
-                    usedtime = int((time.time() - start) * 1000)
-                    moves_str = moves if len(moves) < 15 else ''
-                    output('info depth {} score cp {} time {} nodes {} pv {}'.format(sdepth, score, usedtime, searcher.nodes, moves_str))
+                # if show_thinking:
+                #     entry = searcher.tp_score.get((pos, sdepth, True))
+                #     score = int(round((entry.lower + entry.upper)/2))
+                #     usedtime = int((time.time() - start) * 1000)
+                #     moves_str = moves if len(moves) < 15 else ''
+                #     output('info depth {} score cp {} time {} nodes {} pv {}'.format(sdepth, score, usedtime, searcher.nodes, moves_str))
 
-                if len(moves) > 5:
-                    ponder = moves[1]
+                # if len(moves) > 5:
+                #     ponder = moves[1]
 
                 if movetime > 0 and (time.time() - start) * 1000 > movetime:
+                    output('bestmove ' + _move.uci())
                     break
 
                 if (time.time() - start) * 1000 > our_time/moves_remain:
+                    output('bestmove ' + _move.uci())
                     break
 
                 if sdepth >= depth:
+                    output('bestmove ' + _move.uci())
                     break
 
-            entry = searcher.tp_score.get((pos, sdepth, True))
-            m, s = searcher.tp_move.get(pos), entry.lower
-            # We only resign once we are mated.. That's never?
-            if s == -amwafish.MATE_UPPER:
-                output('resign')
-            else:
-                moves = moves.split(' ')
-                if len(moves) > 1:
-                    output(f'bestmove {moves[0]} ponder {moves[1]}')
-                else:
-                    output('bestmove ' + moves[0])
 
         elif smove.startswith('time'):
             our_time = int(smove.split()[1])

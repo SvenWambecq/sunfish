@@ -50,7 +50,7 @@ DRAW_TEST = True
 # Chess logic
 ###############################################################################
 
-class Position(namedtuple('Position', 'board', 'evaluation')):
+class Position(namedtuple('Position', 'board evaluation')):
     """ A state of a chess game
     board -- a 120 char representation of the board
     evaluation

@@ -1,5 +1,13 @@
 import chess
 
+def get_evaluation_function(variant=None):
+    if variant is None or variant == 'standard':
+        return Classical()
+    elif variant == 'suicide' or variant == 'giveaway':
+        return Antichess()
+    else:
+        raise TypeError('Unsupported variant {}'.format(variant))
+
 
 def attack_enemy_king(board, color):
     score = 0

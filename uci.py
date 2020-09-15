@@ -14,6 +14,7 @@ import tools
 import chess
 import chess.variant
 import amwafish
+import evaluation
 
 from tools import Unbuffered
 
@@ -35,6 +36,7 @@ def main():
     our_time, opp_time = 1000, 1000 # time in centi-seconds
     show_thinking = True
     options = {}
+    eval_function = evaluation.get_evaluation_function()
     stack = []
     while True:
         logging.debug(f'>>> in loop ')
@@ -66,23 +68,27 @@ def main():
 
         elif smove.startswith('position fen'):
             _, _, data = smove.split(' ', 2)
-            fen, moves = data.split('moves')
+            try: 
+                _, moves = data.split('moves')
+                moves = moves.strip().split(' ')
+            except ValueError: 
+                moves = []
             output(options)
-            output(moves)
             board = chess.variant.find_variant(options["UCI_Variant"])()
+            eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
             output(board)
-            for move in moves.strip().split(' '):
+            for move in moves:
                 output(move)
                 board.push(chess.Move.from_uci(move))
-            pos = amwafish.Position(board)
+            pos = board
 
         elif smove.startswith('position startpos'):
             params = smove.split(' ')
-            pos = amwafish.Position(chess.Board())
+            pos = chess.Board()
 
             if len(params) > 2 and params[2] == 'moves':
                 for move in params[3:]:
-                    pos = pos.move(chess.Move.from_uci(move))
+                    pos.push(chess.Move.from_uci(move))
 
         elif smove.startswith('go'):
             #  default options
@@ -104,7 +110,7 @@ def main():
 
             start = time.time()
             ponder = None
-            for sdepth, _move, _score in searcher.search(pos):
+            for sdepth, _move, _score in searcher.search(pos, eval_function):
                 # moves = tools.pv(searcher, pos, include_scores=False)
 
                 # if show_thinking:

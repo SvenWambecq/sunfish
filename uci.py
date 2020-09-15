@@ -1,4 +1,4 @@
-#!/usr/bin/env pypy -u
+#!/home/pi/amwafish/py3/bin/python -u
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -12,9 +12,10 @@ import argparse
 
 import tools
 import chess
+import chess.variant
 import amwafish
 
-from tools import WHITE, BLACK, Unbuffered
+from tools import Unbuffered
 
 def main():
     parser = argparse.ArgumentParser()
@@ -29,43 +30,55 @@ def main():
     def output(line):
         print(line, file=out)
         logging.debug(line)
-    pos = chess.Board(tools.FEN_INITIAL)
+    pos = chess.Board()
     searcher = amwafish.Searcher()
-    color = WHITE
     our_time, opp_time = 1000, 1000 # time in centi-seconds
     show_thinking = True
-
+    options = {}
     stack = []
     while True:
+        logging.debug(f'>>> in loop ')
         if stack:
             smove = stack.pop()
         else: smove = input()
 
         logging.debug(f'>>> {smove} ')
+        if smove.startswith('setoption'):
+            optionMatcher = re.compile("setoption name (?P<name>.*) value (?P<value>.*)")
+            match = optionMatcher.match(smove)
+            if match:
+                options[match.group("name")] = match.group("value")
+            output(options)
 
         if smove == 'quit':
             break
 
         elif smove == 'uci':
             output('id name amwafish')
-            output('id author Thomas Ahle & Contributors')
+            output('id author Sven Wambecq')
             output('uciok')
 
         elif smove == 'isready':
             output('readyok')
 
         elif smove == 'ucinewgame':
-            stack.append('position fen ' + tools.FEN_INITIAL)
+            stack.append('position fen ' + chess.STARTING_FEN)
 
         elif smove.startswith('position fen'):
-            _, _, fen = smove.split(' ', 2)
-            pos = tools.parseFEN(fen)
-            color = WHITE if fen.split()[1] == 'w' else BLACK
+            _, _, data = smove.split(' ', 2)
+            fen, moves = data.split('moves')
+            output(options)
+            output(moves)
+            board = chess.variant.find_variant(options["UCI_Variant"])()
+            output(board)
+            for move in moves.strip().split(' '):
+                output(move)
+                board.push(chess.Move.from_uci(move))
+            pos = amwafish.Position(board)
 
         elif smove.startswith('position startpos'):
             params = smove.split(' ')
             pos = amwafish.Position(chess.Board())
-            color = WHITE
 
             if len(params) > 2 and params[2] == 'moves':
                 for move in params[3:]:
@@ -103,6 +116,7 @@ def main():
 
                 # if len(moves) > 5:
                 #     ponder = moves[1]
+
 
                 if movetime > 0 and (time.time() - start) * 1000 > movetime:
                     output('bestmove ' + _move.uci())

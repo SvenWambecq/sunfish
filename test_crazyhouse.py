@@ -1,6 +1,7 @@
 import unittest
 import amwafish
 import chess
+import evaluation
 
 class TestCrazyHouse(unittest.TestCase):
 
@@ -13,8 +14,9 @@ class TestCrazyHouse(unittest.TestCase):
         board = chess.variant.CrazyhouseBoard(fen)
         board.pockets[chess.WHITE].add(chess.QUEEN)
         board.pockets[chess.WHITE].add(chess.QUEEN)
-        move, score, depth = amwafish.search(self._searcher, board, 1, variant="crazyhouse")
+        move, score, depth = amwafish.search(self._searcher, board, 3, variant="crazyhouse")
         self.assertEqual(move, chess.Move.from_uci('d7e6'))
+        print(score)
 
 if __name__ == "__main__":
     unittest.main()

@@ -110,7 +110,6 @@ class Searcher:
                 s(pos) <= r < gamma    if gamma > s(pos)
                 gamma <= r <= s(pos)   if gamma <= s(pos)"""
         self.nodes += 1
-
         # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
         # calmness, and from this point on there is no difference in behaviour depending on
         # depth, so so there is no reason to keep different depths in the transposition table.
@@ -148,6 +147,7 @@ class Searcher:
             # For QSearch we have a different kind of null-move, namely we can just stop and not capture anythign else.
             if depth == 0:
                 yield None, pos.score
+                return
             # Then killer move. We search it twice, but the tp will fix things for us. Note, we don't have to check for legality, since we've already done it before. Also note that in QS the killer must be a capture, otherwise we will be non deterministic.
             killer = self.tp_move.get(pos)
             if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
@@ -221,7 +221,6 @@ def search(searcher, pos, secs, variant=None):
     start = time.time()
     eval_function = evaluation.get_evaluation_function(variant)
     for depth, move, score in searcher.search(pos, eval_function):
-        print(depth, move, score)
         if time.time() - start > secs:
             break
     return move, score, depth

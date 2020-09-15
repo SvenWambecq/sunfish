@@ -210,12 +210,13 @@ class Searcher:
                 #print(depth, score, gamma)
                 if score >= gamma:
                     lower = score
+                    #yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower
                 if score < gamma:
                     upper = score
                 yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower    
             # We want to make sure the move to play hasn't been kicked out of the table,
             # So we make another call that must always fail high and thus produce a move.
-            self.bound(pos, lower, depth)
+            #self.bound(pos, lower, depth)
             # If the game hasn't finished we can retrieve our move from the
             # transposition table.
             yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower
@@ -246,7 +247,7 @@ def main():
     boardeval = evaluation.Classical()
     searcher = Searcher()
     while True:
-        print_pos(board)
+        #print_pos(board)
 
         if board.is_checkmate():
             print("You lost")

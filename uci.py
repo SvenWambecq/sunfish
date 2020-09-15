@@ -50,7 +50,6 @@ def main():
             match = optionMatcher.match(smove)
             if match:
                 options[match.group("name")] = match.group("value")
-            output(options)
 
         if smove == 'quit':
             break
@@ -73,12 +72,9 @@ def main():
                 moves = moves.strip().split(' ')
             except ValueError: 
                 moves = []
-            output(options)
             board = chess.variant.find_variant(options["UCI_Variant"])()
             eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
-            output(board)
             for move in moves:
-                output(move)
                 board.push(chess.Move.from_uci(move))
             pos = board
 
@@ -122,7 +118,7 @@ def main():
 
                 # if len(moves) > 5:
                 #     ponder = moves[1]
-
+                
 
                 if movetime > 0 and (time.time() - start) * 1000 > movetime:
                     output('bestmove ' + _move.uci())

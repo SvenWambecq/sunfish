@@ -12,6 +12,7 @@ import random
 import os
 import evaluation
 
+
 ###############################################################################
 # Piece-Square tables. Tune these to change sunfish's behaviour
 ###############################################################################
@@ -80,12 +81,6 @@ class Position(namedtuple('Position', 'board evaluation')):
             self.board.pop()
             self.board.pop()
 
-    def nullmove(self):
-        ''' Like rotate, but clears ep and kp '''
-        board = self.board.copy()
-        board.push(chess.Move.null())
-        return Position(board, self.evaluation)
-
     def move(self, move):
         board = self.board.copy()
         board.push(move)
@@ -107,7 +102,6 @@ class Searcher:
     def __init__(self):
         self.tp_score = {}
         self.tp_move = {}
-        self.history = set()
         self.nodes = 0
         self.best_move = None
 
@@ -160,8 +154,8 @@ class Searcher:
                 yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, root=False)
             # Then all the other moves
             for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
-                #print('_____')
-                #print(depth, move, pos.value(move))
+                # print('_____')
+                # print(depth, move, pos.value(move))
                 # If depth == 0 we only try moves with high intrinsic score (captures and promotions). Otherwise we do all moves.
                 if depth > 0 or pos.value(move) >= QS_LIMIT:
                     yield move, -self.bound(pos.move(move), 1-gamma, depth-1, root=False)
@@ -203,7 +197,7 @@ class Searcher:
             # The inner loop is a binary search on the score of the position.
             # Inv: lower <= score <= upper
             # 'while lower != upper' would work, but play tests show a margin of 20 plays better.
-            lower, upper = -MATE_UPPER, MATE_UPPER
+            lower, upper = -MATE_UPPER*2, MATE_UPPER*2
             while lower < upper - EVAL_ROUGHNESS:
                 gamma = (lower+upper+1)//2
                 score = self.bound(pos, gamma, depth)
@@ -222,12 +216,12 @@ class Searcher:
             yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower
 
 
-def search(searcher, pos, secs, eval=None):
+def search(searcher, pos, secs, variant=None):
     """ Search for a position """
     start = time.time()
-    if eval is None: 
-        eval = evaluation.Classical()
-    for depth, move, score in searcher.search(pos, eval):
+    eval_function = evaluation.get_evaluation_function(variant)
+    for depth, move, score in searcher.search(pos, eval_function):
+        print(depth, move, score)
         if time.time() - start > secs:
             break
     return move, score, depth

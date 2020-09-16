@@ -60,7 +60,6 @@ class Evaluation(object):
         return score
 
 
-
 class Classical(Evaluation):
     pieces = { chess.PAWN: 100, 
                 chess.KNIGHT: 280, 

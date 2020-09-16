@@ -11,6 +11,7 @@ import chess.variant
 import random
 import os
 import evaluation
+import concurrent.futures
 
 
 ###############################################################################
@@ -51,11 +52,17 @@ DRAW_TEST = True
 # Chess logic
 ###############################################################################
 
-class Position(namedtuple('Position', 'board evaluation')):
+class Position(object):
     """ A state of a chess game
     board -- a 120 char representation of the board
     evaluation
     """
+    def __init__(self, board, evalfunction=None, depth=0):
+        if evalfunction is None: 
+            evalfunction = evaluation.Classical()
+        self.board = board
+        self.evaluation = evalfunction
+        self.depth = depth
 
     def gen_moves(self):
         for move in self.board.legal_moves:
@@ -84,7 +91,7 @@ class Position(namedtuple('Position', 'board evaluation')):
     def move(self, move):
         board = self.board.copy()
         board.push(move)
-        return Position(board, self.evaluation)
+        return Position(board, self.evaluation, self.depth+1)
 
     def __lt__(self, other):
         return self.score < other.score
@@ -95,21 +102,37 @@ class Position(namedtuple('Position', 'board evaluation')):
 # Search logic
 ###############################################################################
 
+class TimoutException(Exception):
+    pass
+
 # lower <= s(pos) <= upper
 Entry = namedtuple('Entry', 'lower upper')
 
 class Searcher:
+
+    CHECK_TIME_AFTER_NODES = 200
+
     def __init__(self):
         self.tp_score = {}
         self.tp_move = {}
         self.nodes = 0
         self.best_move = None
+        self._startTime = None
+        self._maxtime = None
 
-    def bound(self, pos, gamma, depth, root=True):
+    def startTimer(self):
+        self._startTime = time.clock()
+
+    def bound(self, pos, gamma, depth, initial_depth, root=True):
         """ returns r where
                 s(pos) <= r < gamma    if gamma > s(pos)
                 gamma <= r <= s(pos)   if gamma <= s(pos)"""
         self.nodes += 1
+        if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
+            if self._startTime is not None and self._maxtime is not None:
+                if time.clock() - self._startTime >= self._maxtime:
+                    raise TimoutException
+
         # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
         # calmness, and from this point on there is no difference in behaviour depending on
         # depth, so so there is no reason to keep different depths in the transposition table.
@@ -125,22 +148,22 @@ class Searcher:
             return MATE_UPPER
         if pos.board.is_variant_draw():
             return 0
-
         # Look in the table if we have already searched this position before.
         # We also need to be sure, that the stored search was over the same
         # nodes as the current search.
-        entry = self.tp_score.get((pos, depth+pos.board.fullmove_number*2), Entry(-MATE_UPPER, MATE_UPPER))
-        if entry.lower >= gamma and (not root or self.tp_move.get(pos) is not None):
-            return entry.lower
-        if entry.upper < gamma:
-            return entry.upper
+        entry = self.tp_score.get(pos, Entry(-MATE_UPPER, MATE_UPPER))
+        if pos.depth >= depth: 
+            if entry.lower >= gamma and (not root or self.tp_move.get(pos) is not None):
+                return entry.lower
+            if entry.upper < gamma and (not root or self.tp_move.get(pos) is not None):
+                return entry.upper
 
         # Here extensions may be added
         # Such as 'if in_check: depth += 1'
 
         # Generator of moves to search in order.
         # This allows us to define the moves, but only calculate them if needed.
-        def moves():
+        def moves(size):
             # First try not moving at all. We only do this if there is at least one major piece left on the board, since otherwise zugzwangs are too dangerous.
             # if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
             #     yield None, -self.bound(pos.nullmove(), 1-gamma, depth-3, root=False)
@@ -151,18 +174,21 @@ class Searcher:
             # Then killer move. We search it twice, but the tp will fix things for us. Note, we don't have to check for legality, since we've already done it before. Also note that in QS the killer must be a capture, otherwise we will be non deterministic.
             killer = self.tp_move.get(pos)
             if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
-                yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, root=False)
+                yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, initial_depth, root=False)
             # Then all the other moves
-            for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
+            
+            #print(new_moves)
+            new_moves = sorted(pos.gen_moves(), key=pos.value, reverse=True)
+            for move in new_moves[:len(new_moves)//(initial_depth - depth + 1)]:
                 # print('_____')
                 # print(depth, move, pos.value(move))
                 # If depth == 0 we only try moves with high intrinsic score (captures and promotions). Otherwise we do all moves.
                 if depth > 0 or pos.value(move) >= QS_LIMIT:
-                    yield move, -self.bound(pos.move(move), 1-gamma, depth-1, root=False)
+                    yield move, -self.bound(pos.move(move), 1-gamma, depth-1, initial_depth, root=False)
 
         # Run through the moves, shortcutting when possible
         best = -MATE_UPPER
-        for move, score in moves():
+        for move, score in moves(5):
             best = max(best, score)
             if best >= gamma:
                 # Clear before setting, so we always have a value
@@ -170,60 +196,74 @@ class Searcher:
                     self.tp_move.clear()
                 # Save the move for pv construction and killer heuristic
                 self.tp_move[pos] = move
+                pos.depth = depth
                 break
-
+        
         # Clear before setting, so we always have a value
         if len(self.tp_score) > TABLE_SIZE: self.tp_score.clear()
         # Table part 2
         if best >= gamma:
-            self.tp_score[(pos, depth+pos.board.fullmove_number*2)] = Entry(best, entry.upper)
+            self.tp_score[pos] = Entry(best, entry.upper)
         if best < gamma:
-            self.tp_score[(pos, depth+pos.board.fullmove_number*2)] = Entry(entry.lower, best)
+            self.tp_score[pos] = Entry(entry.lower, best)
         return best
 
     # secs over maxn is a breaking change. Can we do this?
     # I guess I could send a pull request to deep pink
     # Why include secs at all?
-    def search(self, board, evaluation):
+    def search(self, board, evaluation, maxdepth=1000, maxtime=1):
         """ Iterative deepening MTD-bi search """
-        pos = Position(board, evaluation)
+        self._maxtime = maxtime
+        self.startTimer()
+        try:
+            for depth, move, score in self._search(board, evaluation, maxdepth):
+                yield depth, move, score
+        except TimoutException:
+            pass
+
+    def _search(self, board, evaluation, maxdepth=1000):
+        pos = Position(board, evaluation, depth=0)
         self.nodes = 0
         #self.tp_score.clear()
         self.tp_move.clear()
 
         # In finished games, we could potentially go far enough to cause a recursion
         # limit exception. Hence we bound the ply.
-        for depth in range(1, 1000):
+        for depth in range(1, maxdepth):
+            #self.tp_score.clear()
             # The inner loop is a binary search on the score of the position.
             # Inv: lower <= score <= upper
             # 'while lower != upper' would work, but play tests show a margin of 20 plays better.
             lower, upper = -MATE_UPPER*2, MATE_UPPER*2
             while lower < upper - EVAL_ROUGHNESS:
                 gamma = (lower+upper+1)//2
-                score = self.bound(pos, gamma, depth)
+                score = self.bound(pos, gamma, depth, depth)
                 #print(depth, score, gamma)
                 if score >= gamma:
                     lower = score
                     #yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower
                 if score < gamma:
                     upper = score
-                yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower    
+                yield depth, self.tp_move.get(pos), self.tp_score.get(pos).lower    
             # We want to make sure the move to play hasn't been kicked out of the table,
             # So we make another call that must always fail high and thus produce a move.
             #self.bound(pos, lower, depth)
             # If the game hasn't finished we can retrieve our move from the
             # transposition table.
-            yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower
-
+            yield depth, self.tp_move.get(pos), self.tp_score.get(pos).lower
+            
 
 def search(searcher, pos, secs, variant=None):
     """ Search for a position """
     start = time.time()
     eval_function = evaluation.get_evaluation_function(variant)
-    for depth, move, score in searcher.search(pos, eval_function):
-        if time.time() - start > secs:
-            break
-    return move, score, depth
+    try:
+        for depth, move, score in searcher.search(pos, eval_function, maxtime=secs):
+            if time.time() - start > secs:
+                break
+    except TimoutException:
+        pass
+    return depth, move, score
 
 ###############################################################################
 # User interface

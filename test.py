@@ -374,7 +374,7 @@ def quickmate(f, min_depth=1):
         pos = amwafish.Position(chess.Board(line))
         searcher = amwafish.Searcher()
         for d in range(min_depth, 99):
-            score = searcher.bound(pos, amwafish.MATE_LOWER, d, root=True)
+            score = searcher.bound(pos, amwafish.MATE_LOWER, d, d, root=True)
             if score >= amwafish.MATE_LOWER:
                 print(searcher.tp_move.get(pos))
                 break
@@ -413,7 +413,7 @@ def findbest(f, times):
         points = 0
         print(opts.get('id','unnamed'), end=' ', flush=True)
         for t in times:
-            move, _, _ = tools.search(searcher, pos, t)
+            move, _, _ = amwafish.search(searcher, pos, t)
             mark = pos.san(move)
             if am and move != am or bm and move == bm:
                 mark += '(1)'

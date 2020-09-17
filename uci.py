@@ -25,7 +25,7 @@ def main():
     args = parser.parse_args()
 
     amwafish = importlib.import_module(args.module)
-    logging.basicConfig(filename='amwafish.log', level=logging.DEBUG)
+    #logging.basicConfig(filename='amwafish.log', level=logging.DEBUG)
 
     out = Unbuffered(sys.stdout)
     def output(line):
@@ -118,7 +118,8 @@ def main():
 
                 # if len(moves) > 5:
                 #     ponder = moves[1]
-                
+                if _move is None:
+                    continue
 
                 if movetime > 0 and (time.time() - start) * 1000 > movetime:
                     output('bestmove ' + _move.uci())
@@ -131,7 +132,9 @@ def main():
                 if sdepth >= depth:
                     output('bestmove ' + _move.uci())
                     break
-
+            else:
+                if _move:
+                    output('bestmove ' + _move.uci())
 
         elif smove.startswith('time'):
             our_time = int(smove.split()[1])

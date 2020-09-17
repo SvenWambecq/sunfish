@@ -261,9 +261,10 @@ def search(searcher, pos, secs, variant=None):
         for depth, move, score in searcher.search(pos, eval_function, maxtime=secs):
             if time.time() - start > secs:
                 break
+            yield depth, move, score
     except TimoutException:
         pass
-    return depth, move, score
+    #return depth, move, score
 
 ###############################################################################
 # User interface

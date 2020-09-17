@@ -49,6 +49,7 @@ def piece_activity(board, color):
             score += attack_factor[piece] * len(board.attacks(square))
     return score
 
+
 class Evaluation(object):
     def __init__(self):
         self.evals = []
@@ -58,6 +59,8 @@ class Evaluation(object):
         for evaluation in self.evals: 
             score += evaluation(board, board.turn) - evaluation(board, not board.turn)
         return score
+
+
 
 
 class Classical(Evaluation):

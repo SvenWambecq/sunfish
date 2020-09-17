@@ -104,34 +104,8 @@ def main():
 
             moves_remain = 40
 
-            start = time.time()
-            ponder = None
-            for sdepth, _move, _score in searcher.search(pos, eval_function):
-                # moves = tools.pv(searcher, pos, include_scores=False)
-
-                # if show_thinking:
-                #     entry = searcher.tp_score.get((pos, sdepth, True))
-                #     score = int(round((entry.lower + entry.upper)/2))
-                #     usedtime = int((time.time() - start) * 1000)
-                #     moves_str = moves if len(moves) < 15 else ''
-                #     output('info depth {} score cp {} time {} nodes {} pv {}'.format(sdepth, score, usedtime, searcher.nodes, moves_str))
-
-                # if len(moves) > 5:
-                #     ponder = moves[1]
-                if _move is None:
-                    continue
-
-                if movetime > 0 and (time.time() - start) * 1000 > movetime:
-                    output('bestmove ' + _move.uci())
-                    break
-
-                if (time.time() - start) * 1000 > our_time/moves_remain:
-                    output('bestmove ' + _move.uci())
-                    break
-
-                if sdepth >= depth:
-                    output('bestmove ' + _move.uci())
-                    break
+            for sdepth, _move, _score in searcher.search(pos, eval_function, maxdepth=depth, maxtime=our_time/moves_remain/1000):
+                pass
             else:
                 if _move:
                     output('bestmove ' + _move.uci())

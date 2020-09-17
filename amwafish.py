@@ -117,11 +117,17 @@ class Searcher:
         self.tp_move = {}
         self.nodes = 0
         self.best_move = None
-        self._startTime = None
-        self._maxtime = None
+        self._timeout = None
 
-    def startTimer(self):
-        self._startTime = time.clock()
+    def setTimeout(self, timeout=None):
+        if timeout is not None:
+            self._timeout = time.process_time() + timeout
+        else:
+            self._timeout = None
+    
+    def checkTimeout(self):
+        if self._timeout is not None and time.process_time() >= self._timeout:
+            raise TimoutException
 
     def bound(self, pos, gamma, depth, initial_depth, root=True):
         """ returns r where
@@ -129,9 +135,7 @@ class Searcher:
                 gamma <= r <= s(pos)   if gamma <= s(pos)"""
         self.nodes += 1
         if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
-            if self._startTime is not None and self._maxtime is not None:
-                if time.clock() - self._startTime >= self._maxtime:
-                    raise TimoutException
+            self.checkTimeout()
 
         # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
         # calmness, and from this point on there is no difference in behaviour depending on
@@ -211,10 +215,9 @@ class Searcher:
     # secs over maxn is a breaking change. Can we do this?
     # I guess I could send a pull request to deep pink
     # Why include secs at all?
-    def search(self, board, evaluation, maxdepth=1000, maxtime=1):
+    def search(self, board, evaluation, maxdepth=1000, maxtime=None):
         """ Iterative deepening MTD-bi search """
-        self._maxtime = maxtime
-        self.startTimer()
+        self.setTimeout(maxtime)
         try:
             for depth, move, score in self._search(board, evaluation, maxdepth):
                 yield depth, move, score
@@ -255,12 +258,9 @@ class Searcher:
 
 def search(searcher, pos, secs, variant=None):
     """ Search for a position """
-    start = time.time()
     eval_function = evaluation.get_evaluation_function(variant)
     try:
         for depth, move, score in searcher.search(pos, eval_function, maxtime=secs):
-            if time.time() - start > secs:
-                break
             yield depth, move, score
     except TimoutException:
         pass

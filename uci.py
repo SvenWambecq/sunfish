@@ -88,8 +88,13 @@ def main():
                 chess960 = options["UCI_Chess960"] == "true"
             except KeyError:
                 chess960 = False
-            board = get_variant(options["UCI_Variant"])(fen, chess960=chess960)
-            eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
+
+            try: 
+                board = get_variant(options["UCI_Variant"])(fen, chess960=chess960)
+                eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
+            except KeyError:
+                board = chess.Board()
+                eval_function = evaluation.Classical()
             for move in moves:
                 board.push(chess.Move.from_uci(move))
             pos = board

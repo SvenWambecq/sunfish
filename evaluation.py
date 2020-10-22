@@ -8,7 +8,8 @@ def get_evaluation_function(variant=None):
     elif variant == 'crazyhouse':
         return Classical()
     else:
-        raise TypeError('Unsupported variant {}'.format(variant))
+        return Classical()
+        #raise TypeError('Unsupported variant {}'.format(variant))
 
 
 def attack_enemy_king(board, color):
@@ -20,6 +21,8 @@ def attack_enemy_king(board, color):
             if board.is_attacked_by(color, target_square):
                 score += 30 
     return score
+
+
 
 class MaterialBalance(object):
 
@@ -75,7 +78,6 @@ class Classical(Evaluation):
         super().__init__()
         self.evals = [
             MaterialBalance(Classical.pieces), 
-            attack_enemy_king, 
             piece_activity
         ]
 

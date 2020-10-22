@@ -18,6 +18,17 @@ import evaluation
 
 from tools import Unbuffered
 
+
+def get_variant(name):
+    try: 
+        return chess.variant.find_variant(name)
+    except ValueError:
+        if name == "3check":
+            return chess.variant.find_variant("3-check")
+        if name == "kingofthehill":
+            return chess.variant.find_variant("KOTH")
+        raise
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('module', help='sunfish.py file (without .py)', type=str, default='amwafish', nargs='?')
@@ -68,11 +79,16 @@ def main():
         elif smove.startswith('position fen'):
             _, _, data = smove.split(' ', 2)
             try: 
-                _, moves = data.split('moves')
+                fen, moves = data.split('moves')
                 moves = moves.strip().split(' ')
             except ValueError: 
+                fen = data
                 moves = []
-            board = chess.variant.find_variant(options["UCI_Variant"])()
+            try: 
+                chess960 = options["UCI_Chess960"] == "true"
+            except KeyError:
+                chess960 = False
+            board = get_variant(options["UCI_Variant"])(fen, chess960=chess960)
             eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
             for move in moves:
                 board.push(chess.Move.from_uci(move))

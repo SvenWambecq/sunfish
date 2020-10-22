@@ -72,8 +72,12 @@ def main():
                 moves = moves.strip().split(' ')
             except ValueError: 
                 moves = []
-            board = chess.variant.find_variant(options["UCI_Variant"])()
-            eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
+            try: 
+                board = chess.variant.find_variant(options["UCI_Variant"])()
+                eval_function = evaluation.get_evaluation_function(options["UCI_Variant"])
+            except KeyError:
+                board = chess.Board()
+                eval_function = evaluation.Classical()
             for move in moves:
                 board.push(chess.Move.from_uci(move))
             pos = board

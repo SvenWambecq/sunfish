@@ -12,7 +12,11 @@ import random
 import os
 import evaluation
 import concurrent.futures
+from cachetools import cached
+from cachetools.keys import hashkey
+import logging
 
+LOGGER = logging.getLogger(__name__)
 
 ###############################################################################
 # Piece-Square tables. Tune these to change sunfish's behaviour
@@ -44,9 +48,8 @@ TABLE_SIZE = 1e7
 
 # Constants for tuning search
 QS_LIMIT = 219
-EVAL_ROUGHNESS = 13
+EVAL_ROUGHNESS = 50
 DRAW_TEST = True
-
 
 ###############################################################################
 # Chess logic
@@ -63,9 +66,11 @@ class Position(object):
         self.board = board
         self.evaluation = evalfunction
         self.depth = depth
-
+        self._score = None
+        
     def gen_moves(self):
         for move in self.board.legal_moves:
+            #board = self.move(move)
             yield move
 
     def rotate(self):
@@ -73,19 +78,22 @@ class Position(object):
         return Position(self.board.copy(), self.evaluation)
 
     def __hash__(self):
-        return hash(self.board.fen())
+        return hash(self.board.epd())
+
+    def __eq__(self, other):
+        return hash(self) == hash(other)
 
     @property
     def score(self):
-        return self.evaluation(self.board)
+        return self.evaluation(self)
 
     def value(self, move):
         try: 
             self.board.push(move)
-            self.board.push(chess.Move.null())
+            #print(self.score)
+            #sign = -1 if self.board.turn is chess.BLACK else 1
             return self.score
         finally:
-            self.board.pop()
             self.board.pop()
 
     def move(self, move):
@@ -101,6 +109,8 @@ class Position(object):
 ###############################################################################
 # Search logic
 ###############################################################################
+
+
 
 class TimoutException(Exception):
     pass
@@ -118,6 +128,7 @@ class Searcher:
         self.nodes = 0
         self.best_move = None
         self._timeout = None
+        self._cache = {}
 
     def setTimeout(self, timeout=None):
         if timeout is not None:
@@ -128,89 +139,9 @@ class Searcher:
     def checkTimeout(self):
         if self._timeout is not None and time.process_time() >= self._timeout:
             raise TimoutException
-
-    def bound(self, pos, gamma, depth, initial_depth, root=True):
-        """ returns r where
-                s(pos) <= r < gamma    if gamma > s(pos)
-                gamma <= r <= s(pos)   if gamma <= s(pos)"""
-        self.nodes += 1
-        if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
-            self.checkTimeout()
-
-        # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
-        # calmness, and from this point on there is no difference in behaviour depending on
-        # depth, so so there is no reason to keep different depths in the transposition table.
-        depth = max(depth, 0)
-
-        # Sunfish is a king-capture engine, so we should always check if we
-        # still have a king. Notice since this is the only termination check,
-        # the remaining code has to be comfortable with being mated, stalemated
-        # or able to capture the opponent king.
-        if pos.board.is_variant_loss():
-            return -MATE_UPPER
-        if pos.board.is_variant_win():
-            return MATE_UPPER
-        if pos.board.is_variant_draw():
-            return 0
-        # Look in the table if we have already searched this position before.
-        # We also need to be sure, that the stored search was over the same
-        # nodes as the current search.
-        entry = self.tp_score.get(pos, Entry(-MATE_UPPER, MATE_UPPER))
-        if pos.depth >= depth: 
-            if entry.lower >= gamma and (not root or self.tp_move.get(pos) is not None):
-                return entry.lower
-            if entry.upper < gamma and (not root or self.tp_move.get(pos) is not None):
-                return entry.upper
-
-        # Here extensions may be added
-        # Such as 'if in_check: depth += 1'
-
-        # Generator of moves to search in order.
-        # This allows us to define the moves, but only calculate them if needed.
-        def moves(size):
-            # First try not moving at all. We only do this if there is at least one major piece left on the board, since otherwise zugzwangs are too dangerous.
-            # if depth > 0 and not root and any(c in pos.board for c in 'RBNQ'):
-            #     yield None, -self.bound(pos.nullmove(), 1-gamma, depth-3, root=False)
-            # For QSearch we have a different kind of null-move, namely we can just stop and not capture anythign else.
-            if depth == 0:
-                yield None, pos.score
-                return
-            # Then killer move. We search it twice, but the tp will fix things for us. Note, we don't have to check for legality, since we've already done it before. Also note that in QS the killer must be a capture, otherwise we will be non deterministic.
-            killer = self.tp_move.get(pos)
-            if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
-                yield killer, -self.bound(pos.move(killer), 1-gamma, depth-1, initial_depth, root=False)
-            # Then all the other moves
-            
-            #print(new_moves)
-            new_moves = sorted(pos.gen_moves(), key=pos.value, reverse=True)
-            for move in new_moves[:len(new_moves)//(initial_depth - depth + 1)]:
-                # print('_____')
-                # print(depth, move, pos.value(move))
-                # If depth == 0 we only try moves with high intrinsic score (captures and promotions). Otherwise we do all moves.
-                if depth > 0 or pos.value(move) >= QS_LIMIT:
-                    yield move, -self.bound(pos.move(move), 1-gamma, depth-1, initial_depth, root=False)
-
-        # Run through the moves, shortcutting when possible
-        best = -MATE_UPPER
-        for move, score in moves(5):
-            best = max(best, score)
-            if best >= gamma:
-                # Clear before setting, so we always have a value
-                if len(self.tp_move) > TABLE_SIZE: 
-                    self.tp_move.clear()
-                # Save the move for pv construction and killer heuristic
-                self.tp_move[pos] = move
-                pos.depth = depth
-                break
-        
-        # Clear before setting, so we always have a value
-        if len(self.tp_score) > TABLE_SIZE: self.tp_score.clear()
-        # Table part 2
-        if best >= gamma:
-            self.tp_score[pos] = Entry(best, entry.upper)
-        if best < gamma:
-            self.tp_score[pos] = Entry(entry.lower, best)
-        return best
+    
+    def log(self, msg, indent=0):
+        LOGGER.debug(indent * " " + msg)
 
     # secs over maxn is a breaking change. Can we do this?
     # I guess I could send a pull request to deep pink
@@ -224,6 +155,88 @@ class Searcher:
         except TimoutException:
             pass
 
+    def negamax(self, pos, depth, lower_bound, upper_bound):
+        try:
+            ev, d = self._cache[pos.board.epd()]
+            if d >= depth: 
+                self.cache_hits += 1
+                LOGGER.debug("return cached value {}".format(ev))
+                return ev
+        except KeyError: 
+            pass 
+        
+        self.nodes += 1
+        color = -1 if pos.board.turn == chess.BLACK else 1
+        # if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
+        #     self.checkTimeout()
+        LOGGER.debug("Depth {}".format(depth))
+        # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
+        # calmness, and from this point on there is no difference in behaviour depending on
+        # depth, so so there is no reason to keep different depths in the transposition table.
+        if depth == 0: 
+            LOGGER.debug("depth = 0, score={}".format(pos.score))
+            score = color * pos.score
+            self._cache[pos.board.epd()] = (score, 0)
+            return score
+
+        if pos.board.is_variant_loss():
+            LOGGER.debug("Variant loss")
+            return -color * MATE_UPPER
+        if pos.board.is_variant_win():
+            LOGGER.debug("Variant win")
+            return color * MATE_UPPER
+        if pos.board.is_variant_draw():
+            LOGGER.debug("Variant draw")
+            return 0
+        # Run through the moves, shortcutting when possible
+
+       # move = None
+        mvs = []
+        best = -MATE_UPPER
+        lower = lower_bound
+        upper = upper_bound
+        try: 
+            moves = pos.gen_moves()
+            for move in moves: 
+                try:
+                    if pos.board.is_capture(move):
+                        pos.board.push(move)
+                        score = -self.negamax(pos, depth-1, -upper_bound, -lower_bound)
+                        LOGGER.debug("Move {} = {}".format(move, score))
+                        best = max(best, score)
+                        lower_bound = max(lower_bound, score)
+                    
+                        if lower_bound > upper_bound:
+                            best = upper_bound
+                            LOGGER.debug("Saving {} with score {}".format(move, score))
+                            return best
+                    
+                finally: 
+                    if pos.board.is_capture(move):
+                        pos.board.pop()
+
+            for move in sorted(pos.gen_moves(), key=pos.value, reverse=pos.board.turn == chess.WHITE):
+                try: 
+                    is_capture = pos.board.is_capture(move)
+                    pos.board.push(move)
+                    score = -self.negamax(pos, depth-1, -upper_bound, -lower_bound)
+                    LOGGER.debug("Move {} = {}".format(move, score))
+                    best = max(best, score)
+                    lower_bound = max(lower_bound, score)
+                    
+                    if lower_bound > upper_bound:
+                        best = upper_bound
+                        LOGGER.debug("Saving {} with score {}".format(move, score))
+                        break
+                    
+                finally: 
+                    pos.board.pop()
+
+            return best
+        finally: 
+            self._cache[pos.board.epd()] = (best, depth)
+        #return best
+
     def _search(self, board, evaluation, maxdepth=1000):
         pos = Position(board, evaluation, depth=0)
         self.nodes = 0
@@ -232,28 +245,36 @@ class Searcher:
 
         # In finished games, we could potentially go far enough to cause a recursion
         # limit exception. Hence we bound the ply.
+        self._cache = {}
+        self.cache_hits = 0
+        moves = {move: pos.value(move) for move in pos.gen_moves()}
         for depth in range(1, maxdepth):
             #self.tp_score.clear()
             # The inner loop is a binary search on the score of the position.
             # Inv: lower <= score <= upper
             # 'while lower != upper' would work, but play tests show a margin of 20 plays better.
-            lower, upper = -MATE_UPPER*2, MATE_UPPER*2
-            while lower < upper - EVAL_ROUGHNESS:
-                gamma = (lower+upper+1)//2
-                score = self.bound(pos, gamma, depth, depth)
-                #print(depth, score, gamma)
-                if score >= gamma:
-                    lower = score
-                    #yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth+pos.board.fullmove_number*2)).lower
-                if score < gamma:
-                    upper = score
-                yield depth, self.tp_move.get(pos), self.tp_score.get(pos).lower    
-            # We want to make sure the move to play hasn't been kicked out of the table,
-            # So we make another call that must always fail high and thus produce a move.
-            #self.bound(pos, lower, depth)
-            # If the game hasn't finished we can retrieve our move from the
-            # transposition table.
-            yield depth, self.tp_move.get(pos), self.tp_score.get(pos).lower
+            lower_bound = -MATE_UPPER
+            upper_bound = MATE_UPPER
+            LOGGER.info("Trying depth {}".format(depth))
+            filtered = sorted(moves.items(), key=lambda item: item[1], reverse=pos.board.turn == chess.WHITE)
+            for move, initial_score in filtered:
+                try:
+                    pos.board.push(move)
+                    LOGGER.info("Evaluating Move {} initial score={}".format(move, initial_score))
+                    score = -self.negamax(pos, depth, lower_bound, upper_bound)
+
+                    LOGGER.info("Move {} = {} lower_bound = {} nodes={}".format(move, score, lower_bound, self.nodes))
+                    if score >= lower_bound:
+                        LOGGER.info("Found best move {} = {}".format(move, score))
+                        moves[move] = score
+                        lower_bound = score
+                        best = move
+                        #yield depth, best, score
+                finally:
+                    pos.board.pop()
+            # lower, upper = -MATE_UPPER*2, MATE_UPPER*2
+            #print("cache hits = {}".format(self.cache_hits))
+            yield depth, best, score
             
 
 def search(searcher, pos, secs, variant=None):
@@ -277,6 +298,7 @@ def print_pos(board):
 
 
 def main():
+    logging.basicConfig(level=logging.DEBUG)
     board = chess.Board()
     boardeval = evaluation.Classical()
     searcher = Searcher()

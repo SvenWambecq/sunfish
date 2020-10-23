@@ -12,8 +12,6 @@ import random
 import os
 import evaluation
 import concurrent.futures
-from cachetools import cached
-from cachetools.keys import hashkey
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -131,6 +129,7 @@ class Searcher:
         self._cache = {}
 
     def setTimeout(self, timeout=None):
+        LOGGER.info("COnfiguring timeout to {}".format(timeout))
         if timeout is not None:
             self._timeout = time.process_time() + timeout
         else:
@@ -148,12 +147,14 @@ class Searcher:
     # Why include secs at all?
     def search(self, board, evaluation, maxdepth=1000, maxtime=None):
         """ Iterative deepening MTD-bi search """
+        self.setTimeout(None)
+        depth, move, score = next(self._search(board, evaluation, 2))
         self.setTimeout(maxtime)
         try:
             for depth, move, score in self._search(board, evaluation, maxdepth):
                 yield depth, move, score
         except TimoutException:
-            pass
+            yield depth, move, score
 
     def negamax(self, pos, depth, lower_bound, upper_bound):
         try:
@@ -167,8 +168,8 @@ class Searcher:
         
         self.nodes += 1
         color = -1 if pos.board.turn == chess.BLACK else 1
-        # if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
-        #     self.checkTimeout()
+        if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
+            self.checkTimeout()
         LOGGER.debug("Depth {}".format(depth))
         # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
         # calmness, and from this point on there is no difference in behaviour depending on
@@ -196,7 +197,7 @@ class Searcher:
         lower = lower_bound
         upper = upper_bound
         try: 
-            moves = pos.gen_moves()
+            moves = sorted(pos.gen_moves(), key=pos.value, reverse=pos.board.turn == chess.WHITE)
             for move in moves: 
                 try:
                     if pos.board.is_capture(move):
@@ -215,9 +216,10 @@ class Searcher:
                     if pos.board.is_capture(move):
                         pos.board.pop()
 
-            for move in sorted(pos.gen_moves(), key=pos.value, reverse=pos.board.turn == chess.WHITE):
+            for move in moves: #sorted(pos.gen_moves(), key=pos.value, reverse=pos.board.turn == chess.WHITE):
+                if pos.board.is_capture(move):
+                    continue
                 try: 
-                    is_capture = pos.board.is_capture(move)
                     pos.board.push(move)
                     score = -self.negamax(pos, depth-1, -upper_bound, -lower_bound)
                     LOGGER.debug("Move {} = {}".format(move, score))
@@ -282,9 +284,10 @@ def search(searcher, pos, secs, variant=None):
     eval_function = evaluation.get_evaluation_function(variant)
     try:
         for depth, move, score in searcher.search(pos, eval_function, maxtime=secs):
+            LOGGER.info("Found move {} for depth {} with score {}".format(move, depth, score))
             yield depth, move, score
     except TimoutException:
-        pass
+        LOGGER.warning("Timeout in search function")
     #return depth, move, score
 
 ###############################################################################

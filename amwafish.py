@@ -156,6 +156,19 @@ class Searcher:
         except TimoutException:
             yield depth, move, score
 
+    def genMoves(self, pos):
+        board = pos.board
+        moves = list(board.legal_moves)
+        # first try the captures 
+        for move in moves:
+            if board.is_capture(move):
+                moves.remove(move)
+                yield move
+        
+        for move in sorted(moves, key=pos.value, reverse=board.turn == chess.WHITE): 
+            yield move
+
+
     def negamax(self, pos, depth, lower_bound, upper_bound):
         try:
             ev, d = self._cache[pos.board.epd()]
@@ -197,28 +210,7 @@ class Searcher:
         lower = lower_bound
         upper = upper_bound
         try: 
-            moves = sorted(pos.gen_moves(), key=pos.value, reverse=pos.board.turn == chess.WHITE)
-            for move in moves: 
-                try:
-                    if pos.board.is_capture(move):
-                        pos.board.push(move)
-                        score = -self.negamax(pos, depth-1, -upper_bound, -lower_bound)
-                        LOGGER.debug("Move {} = {}".format(move, score))
-                        best = max(best, score)
-                        lower_bound = max(lower_bound, score)
-                    
-                        if lower_bound > upper_bound:
-                            best = upper_bound
-                            LOGGER.debug("Saving {} with score {}".format(move, score))
-                            return best
-                    
-                finally: 
-                    if pos.board.is_capture(move):
-                        pos.board.pop()
-
-            for move in moves: #sorted(pos.gen_moves(), key=pos.value, reverse=pos.board.turn == chess.WHITE):
-                if pos.board.is_capture(move):
-                    continue
+            for move in self.genMoves(pos): 
                 try: 
                     pos.board.push(move)
                     score = -self.negamax(pos, depth-1, -upper_bound, -lower_bound)
@@ -229,6 +221,7 @@ class Searcher:
                     if lower_bound > upper_bound:
                         best = upper_bound
                         LOGGER.debug("Saving {} with score {}".format(move, score))
+                        self._cache[pos.board.epd()] = (best, depth)
                         break
                     
                 finally: 
@@ -271,7 +264,7 @@ class Searcher:
                         moves[move] = score
                         lower_bound = score
                         best = move
-                        #yield depth, best, score
+                        yield depth, best, score
                 finally:
                     pos.board.pop()
             # lower, upper = -MATE_UPPER*2, MATE_UPPER*2

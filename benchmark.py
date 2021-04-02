@@ -16,11 +16,11 @@ positions = [
 
 def test_position(fen, blunders):
     position, searcher = setUpPosition(fen)
-    for depth, move, score in searcher.search(position.board, evaluation.Classical(), maxdepth=6, maxtime=10):
+    for depth, move, score in searcher.search(position.board, evaluation.Classical(), maxdepth=5, maxtime=30):
         print(searcher.nodes, depth, move, score)
     print(depth, move, score)
-    
+
 import logging
 logging.basicConfig(level=logging.INFO)
-test_position(*positions[0])
+test_position(*positions[1])
 #test_position("rnbqk1nr/pp2ppbp/6p1/2pp4/8/4N3/PPPPPPPP/RNBQKB1R w KQkq - 0 5", ["d2d4", "b1c3"])

@@ -46,15 +46,15 @@ def piece_activity(board, color):
     board = board.board
     score = 0
     attack_factor = {
-        chess.PAWN: 3,
-        chess.KNIGHT: 10,
-        chess.BISHOP: 7,
+        chess.PAWN: 0,
+        chess.KNIGHT: 15,
+        chess.BISHOP: 10,
         chess.ROOK: 5,
         chess.QUEEN: 3,
-        chess.KING: 1
+        chess.KING: 0
     }
-    names = (chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING)
-    values = [board.pawns, board.knights, board.bishops, board.rooks, board.queens, board.kings]
+    names = (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)
+    values = [board.knights, board.bishops, board.rooks, board.queens]
     for pieces, piece_type in [(chess.SquareSet(piece & board.occupied_co[color]), name) for piece, name in zip(values, names)]:
         for square in pieces:
             score += attack_factor[piece_type] * len(board.attacks(square))
@@ -142,10 +142,10 @@ class Classical(Evaluation):
     def __call__(self, pos):
 
         score = super().__call__(pos)
-        score += MaterialBalance(Classical.pieces)(pos, chess.WHITE) - MaterialBalance(Classical.pieces)(pos, chess.BLACK)
+        #score += MaterialBalance(Classical.pieces)(pos, chess.WHITE) - MaterialBalance(Classical.pieces)(pos, chess.BLACK)
         #score += Space()(pos, chess.WHITE) - Space()(pos, chess.BLACK)
-        #score += PsqtEval(pos, chess.WHITE) - PsqtEval(pos, chess.BLACK)
-        score += piece_activity(pos, chess.WHITE) - piece_activity(pos, chess.BLACK)
+        score += PsqtEval(pos, chess.WHITE) - PsqtEval(pos, chess.BLACK)
+        #score += piece_activity(pos, chess.WHITE) - piece_activity(pos, chess.BLACK)
         return score
 
 class MinimumPieceToCapture(object):
@@ -257,19 +257,29 @@ def compute_diff(pos, score, move):
         pass
     return score
 
+def transform(square, color):
+    rank = chess.square_rank(square)
+    file = chess.square_file(square)
+    if color == chess.WHITE:
+        return 8*(7-rank) + file
+    else:
+        return 8*rank + (7 - file)
+
+
 def PsqtEval(pos, color):
     board = pos.board
     if color == chess.WHITE:
         score = 0
         for square in chess.SquareSet(board.occupied_co[chess.WHITE]):
             piece = board.piece_type_at(square)
-            score += psqt[piece][square] + pieces[piece]
+
+            score += psqt[piece][transform(square, chess.WHITE)] + pieces[piece]
         return score
     else:
         score = 0
         for square in chess.SquareSet(board.occupied_co[chess.BLACK]):
             piece = board.piece_type_at(square)
-            score += psqt[piece][63-square] + pieces[piece]
+            score += psqt[piece][transform(square, chess.BLACK)] + pieces[piece]
         return score
 
     # if color == chess.BLACK:

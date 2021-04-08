@@ -132,13 +132,14 @@ def hashBoard(board):
     # return hash(''.join([move.uci() for move in board.move_stack]))
     #return hash(board.epd())
 
+
 # lower <= s(pos) <= upper
 Entry = namedtuple('Entry', 'lower upper')
 
 
 class Searcher:
 
-    CHECK_TIME_AFTER_NODES = 5000
+    CHECK_TIME_AFTER_NODES = 200
 
     def __init__(self):
         self.tp_score = {}
@@ -198,22 +199,34 @@ class Searcher:
         #LOGGER.debug("Depth {}".format(depth))
 
         try:
-            _score, _depth, move, moves = self._cache[epd]
-            if depth <= _depth:
-                return _score, move, moves
+            entry, _depth, move, moves = self._cache[epd]
+            # if depth <= _depth:
+            if entry.lower >= beta:
+                return entry.lower, move, moves
+            if entry.upper < alpha:
+                return entry.upper, move, moves
+
+            # if depth <= _depth:
+            #     return _score, move, moves
         except KeyError:
-            pass
+            entry = Entry(-MATE_UPPER, MATE_UPPER)
         self.nodes += 1
         depth = max(0, depth)
 
-        def save(epd, score, depth, move, moveList):
+        def save(epd, score, depth, move, moveList, alpha, beta):
+            if score >= beta:
+                newEntry = Entry(score, entry.upper)
+            elif score < alpha:
+                newEntry = Entry(entry.lower, score)
+            else:
+                newEntry = None
             try:
                 _, cachedDepth, _, _ = self._cache[epd]
-                if cachedDepth < depth:
-                    raise KeyError
+                # if cachedDepth < depth:
+                #     raise KeyError
             except KeyError:
-                self._cache[epd] = (score, depth, move, [move] + moveList)
-
+                if newEntry:
+                    self._cache[epd] = (newEntry, depth, move, [move] + moveList, )
 
         if pos.board.is_variant_loss():
             return (-MATE_UPPER if maximizingPlayer else MATE_UPPER, None, [])
@@ -228,8 +241,9 @@ class Searcher:
         color = 1 if maximizingPlayer else -1
 
         def genMoves():
+            score = pos.score
             if depth == 0:
-                yield pos.score, None, []
+                yield score, None, []
 
             try:
                 _, _, killer_move, _ = self._cache[epd]
@@ -244,7 +258,7 @@ class Searcher:
             if killer_move:
                 sortedMoves.insert(0, killer_move)
             for move in sortedMoves:
-                if depth > 0 or color*data[move] > 400:
+                if depth > 0 or ( color*(data[move]) > 200):
                     try:
                         pos.board.push(move)
                         bestScore, _, mvs = self.minimax(pos, depth-1, alpha, beta)
@@ -276,47 +290,8 @@ class Searcher:
                 break
             LOGGER.info("Checking done at {}: {}, {}".format(depth, alpha, beta))
 
-        save(epd, best, depth, bestMove, moveStack)
+        save(epd, best, depth, bestMove, moveStack, alpha, beta)
         return best, bestMove, [bestMove] + moveStack
-
-
-        # LOGGER.info("Checking for {} at depth {}: {}".format(maximizingPlayer, depth, pos.board.move_stack))
-        # try:
-        #     for move in sortedMoves:
-        #         try:
-        #             if pos.board.is_capture(move) and depth == 2:
-        #                 newdepth = depth
-        #             else:
-        #                 newdepth = depth - 1
-        #             pos.board.push(move)
-        #             LOGGER.info("move {} at depth {}, alpha={}, beta={}".format(move, depth, alpha, beta))
-        #             result = self.minimax(pos, depth=newdepth, alpha=alpha, beta=beta)
-        #             score = result[0]
-        #         finally:
-        #             pos.board.pop()
-
-        #         if maximizingPlayer:
-        #             if score >= best:
-        #                 bestMove = move
-        #             best = max(best, score)
-        #             alpha = max(alpha, score)
-        #         else:
-        #             if score <= best:
-        #                 bestMove = move
-        #             best = min(best, score)
-        #             beta = min(beta, score)
-
-        #         if alpha >= beta:
-        #             #best = upper_bound
-        #             bestMove = move
-        #             LOGGER.info("Saving {} with score {}, depth={} ({} > {})".format(move, score, depth, alpha, beta))
-        #             LOGGER.debug("Move stack 1 {}".format(pos.board.move_stack))
-        #             #self._cache[hashBoard(pos.board)] = (best, depth, move, pos.board.fullmove_number)
-        #             break
-        #     LOGGER.info("Checking done at {}: {}, {}".format(depth, alpha, beta))
-        #     return best, bestMove
-        # finally:
-        #     self._cache[epd] = (best, depth, bestMove)
 
     def MTDF(self, pos, score, depth):
         g = score
@@ -324,7 +299,7 @@ class Searcher:
         lowerbound = -MATE_UPPER
         best = None
         moves = []
-        while lowerbound < upperbound:
+        while lowerbound < upperbound - 30:
             if g == lowerbound:
                 beta = g + 1
             else:
@@ -351,14 +326,9 @@ class Searcher:
         for depth in range(1, maxdepth):
             #self.tp_score.clear()
             # The inner loop is a binary search on the score of the position.
-            # Inv: lower <= score <= upper
-            # 'while lower != upper' would work, but play tests show a margin of 20 plays better.
-            alpha = -MATE_UPPER
-            beta = MATE_UPPER
 
             LOGGER.info("Trying depth {}".format(depth))
 
-            #score, best, moves = self.minimax(pos, depth, alpha, beta)
             self.score, best, moves = self.MTDF(pos, self.score, depth)
             yield depth, best, self.score, moves
 

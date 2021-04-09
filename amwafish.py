@@ -84,12 +84,20 @@ class Position(object):
 
     @property
     def score(self):
+        color = -1 if self.board.turn == chess.BLACK else 1
+        if self.board.is_variant_loss():
+            return color * -MATE_UPPER
+        if self.board.is_variant_win():
+            return color * MATE_UPPER
+        if self.board.is_variant_draw():
+            return 0
         return self.evaluation(self)
 
 
     def value(self, move):
         try:
             self.board.push(move)
+
             #print(self.score)
             #sign = -1 if self.board.turn is chess.BLACK else 1
             return self.score
@@ -116,21 +124,21 @@ class TimoutException(Exception):
     pass
 
 def hashBoard(board):
-    representation = ""
-    representation += str(board.pawns)
-    representation += str(board.knights)
-    representation += str(board.bishops)
-    representation += str(board.rooks)
-    representation += str(board.queens)
-    representation += str(board.kings)
-    representation += str(board.occupied_co[chess.WHITE])
-    representation += str(board.occupied_co[chess.BLACK])
-    representation += str(board.occupied)
-    representation += str(board.promoted)
-    representation += str(board.turn)
-    return hash(representation)
-    # return hash(''.join([move.uci() for move in board.move_stack]))
-    #return hash(board.epd())
+    # representation = ""
+    # representation += str(board.pawns)
+    # representation += str(board.knights)
+    # representation += str(board.bishops)
+    # representation += str(board.rooks)
+    # representation += str(board.queens)
+    # representation += str(board.kings)
+    # representation += str(board.occupied_co[chess.WHITE])
+    # representation += str(board.occupied_co[chess.BLACK])
+    # representation += str(board.occupied)
+    # representation += str(board.promoted)
+    # representation += str(board.turn)
+    # return hash(representation)
+    # # return hash(''.join([move.uci() for move in board.move_stack]))
+    return hash(board.epd())
 
 
 # lower <= s(pos) <= upper
@@ -167,9 +175,6 @@ class Searcher:
     def log(self, msg, indent=0):
         LOGGER.debug(indent * " " + msg)
 
-    # secs over maxn is a breaking change. Can we do this?
-    # I guess I could send a pull request to deep pink
-    # Why include secs at all?
     def search(self, board, evaluation, maxdepth=1000, maxtime=None):
         """ Iterative deepening MTD-bi search """
         self.setTimeout(None)
@@ -193,40 +198,11 @@ class Searcher:
 
         maximizingPlayer = pos.board.turn == chess.WHITE
         epd = hashBoard(pos.board)
+        depth = max(0, depth)
 
         if self.nodes % Searcher.CHECK_TIME_AFTER_NODES == 0:
             self.checkTimeout(depth, alpha, beta)
         #LOGGER.debug("Depth {}".format(depth))
-
-        try:
-            entry, _depth, move, moves = self._cache[epd]
-            # if depth <= _depth:
-            if entry.lower >= beta:
-                return entry.lower, move, moves
-            if entry.upper < alpha:
-                return entry.upper, move, moves
-
-            # if depth <= _depth:
-            #     return _score, move, moves
-        except KeyError:
-            entry = Entry(-MATE_UPPER, MATE_UPPER)
-        self.nodes += 1
-        depth = max(0, depth)
-
-        def save(epd, score, depth, move, moveList, alpha, beta):
-            if score >= beta:
-                newEntry = Entry(score, entry.upper)
-            elif score < alpha:
-                newEntry = Entry(entry.lower, score)
-            else:
-                newEntry = None
-            try:
-                _, cachedDepth, _, _ = self._cache[epd]
-                # if cachedDepth < depth:
-                #     raise KeyError
-            except KeyError:
-                if newEntry:
-                    self._cache[epd] = (newEntry, depth, move, [move] + moveList, )
 
         if pos.board.is_variant_loss():
             return (-MATE_UPPER if maximizingPlayer else MATE_UPPER, None, [])
@@ -234,6 +210,39 @@ class Searcher:
             return (MATE_UPPER if maximizingPlayer else -MATE_UPPER, None, [])
         if pos.board.is_variant_draw():
             return (0, None, [])
+
+        try:
+            entry, _depth, _move, _moves = self._cache[epd]
+            if depth <= _depth:
+                if entry.lower > beta:
+                    return entry.lower, _move, _moves
+                if entry.upper < alpha:
+                    return entry.upper, _move, _moves
+
+            else:
+                entry = Entry(-MATE_UPPER, MATE_UPPER)
+            # if depth <= _depth:
+            #     return _score, move, moves
+        except KeyError:
+            entry = Entry(-MATE_UPPER, MATE_UPPER)
+
+
+
+        self.nodes += 1
+
+        def save(epd, score, depth, move, moveList):
+            if score >= beta:
+                newEntry = Entry(score, entry.upper)
+            elif score <= alpha:
+                newEntry = Entry(entry.lower, score)
+            else:
+                newEntry = entry
+            # try:
+            #     _, cachedDepth, _, _ = self._cache[epd]
+            #     if cachedDepth <= depth:
+            #          self._cache[epd] = (newEntry, depth, move, [move] + moveList)
+            # except KeyError:
+            self._cache[epd] = (newEntry, depth, move, [move] + moveList)
 
         best = -MATE_UPPER if maximizingPlayer else MATE_UPPER
         bestMove = None
@@ -258,7 +267,7 @@ class Searcher:
             if killer_move:
                 sortedMoves.insert(0, killer_move)
             for move in sortedMoves:
-                if depth > 0 or ( color*(data[move]) > 200):
+                if depth > 0 or color * data[move] > 200:
                     try:
                         pos.board.push(move)
                         bestScore, _, mvs = self.minimax(pos, depth-1, alpha, beta)
@@ -290,8 +299,24 @@ class Searcher:
                 break
             LOGGER.info("Checking done at {}: {}, {}".format(depth, alpha, beta))
 
-        save(epd, best, depth, bestMove, moveStack, alpha, beta)
+        save(epd, best, depth, bestMove, moveStack)
         return best, bestMove, [bestMove] + moveStack
+
+    def get_variation(self, pos, depth):
+
+        try:
+            _, _, move, _ = self._cache[hashBoard(pos.board)]
+            if move:
+                try:
+                    pos.board.push(move)
+                    variation = self.get_variation(pos, depth-1)
+                    variation.insert(0, move)
+                    return variation
+                finally:
+                    pos.board.pop()
+        except KeyError:
+            pass
+        return []
 
     def MTDF(self, pos, score, depth):
         g = score
@@ -299,12 +324,14 @@ class Searcher:
         lowerbound = -MATE_UPPER
         best = None
         moves = []
-        while lowerbound < upperbound - 30:
+        while lowerbound < upperbound:
             if g == lowerbound:
                 beta = g + 1
             else:
                 beta = g
+
             g, best, moves = self.minimax(pos, depth, beta-1, beta)
+            #print("MTDF: {}, {} , {} beta={}, positions={}".format(g, lowerbound, upperbound, beta, self.nodes))
             if g < beta:
                 upperbound = g
             else:
@@ -326,10 +353,12 @@ class Searcher:
         for depth in range(1, maxdepth):
             #self.tp_score.clear()
             # The inner loop is a binary search on the score of the position.
-
+            # alpha = -MATE_UPPER
+            # beta = MATE_UPPER
             LOGGER.info("Trying depth {}".format(depth))
-
+            #score, best, moves = self.minimax(pos, depth, alpha, beta)
             self.score, best, moves = self.MTDF(pos, self.score, depth)
+            print(self.get_variation(pos, depth))
             yield depth, best, self.score, moves
 
 
